@@ -23,7 +23,45 @@ export AIPROMPTBUCKET_API_KEY="sk-api01-your-key-here"
 export AIPROMPTBUCKET_URL="https://aipromptbucket.com"  # optional, this is the default
 ```
 
-## Quick Start
+## Quick Start — `get_prompt()`
+
+The simplest way to use AI Prompt Bucket. One function, no boilerplate:
+
+```python
+from aipromptbucket import get_prompt
+
+# Fetch a rendered prompt
+text = get_prompt("my-prompt")
+
+# With variables
+text = get_prompt("my-prompt", variables={"name": "Alice"})
+
+# With a specific label
+text = get_prompt("my-prompt", label="staging")
+
+# With a fallback if the service is unreachable
+text = get_prompt("my-prompt", fallback="You are a helpful assistant.")
+
+# With TTL caching (seconds)
+text = get_prompt("my-prompt", ttl=300)
+```
+
+Set global defaults so you don't repeat yourself:
+
+```python
+import aipromptbucket
+
+aipromptbucket.configure(
+    api_key="sk-api01-...",
+    base_url="https://aipromptbucket.com",
+    default_label="production",
+    default_ttl=300,
+)
+```
+
+## Using the Full Client
+
+For advanced use cases (creating prompts, managing versions, labels, etc.):
 
 ```python
 from aipromptbucket import Client

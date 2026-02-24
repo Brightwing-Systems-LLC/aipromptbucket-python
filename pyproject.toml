@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    { name = "Bright Wing Solutions LLC" },
+    { name = "Bright Wing Solutions LLC", email = "support@brightwingsolutions.com" },
 ]
 keywords = ["ai", "prompts", "llm", "prompt-management", "sdk"]
 classifiers = [
@@ -33,7 +33,27 @@ apb = "aipromptbucket.cli:main"
 
 [project.urls]
 Homepage = "https://aipromptbucket.com"
-Repository = "https://github.com/brightwingsolutions/aipromptbucket-python"
+Repository = "https://github.com/Brightwing-Systems-LLC/aipromptbucket-python"
+Documentation = "https://aipromptbucket.com/docs/sdks/python"
+"Bug Tracker" = "https://github.com/Brightwing-Systems-LLC/aipromptbucket-python/issues"
+Changelog = "https://github.com/Brightwing-Systems-LLC/aipromptbucket-python/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/aipromptbucket"]
+
+[tool.bumpversion]
+current_version = "0.1.0"
+commit = true
+tag = true
+allow_dirty = true
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+
+[[tool.bumpversion.files]]
+filename = "src/aipromptbucket/__init__.py"
+
+[dependency-groups]
+dev = [
+    "bump-my-version>=1.2.7",
+]

@@ -3,6 +3,7 @@
 __version__ = "0.1.0"
 
 from .client import Client
+from .drop_in import configure, get_prompt
 from .scanner import Scanner
 from .types import (
     AnalysisFinding,
@@ -25,6 +26,8 @@ from .types import (
 __all__ = [
     "Client",
     "Scanner",
+    "configure",
+    "get_prompt",
     "APIResponse",
     "AnalysisFinding",
     "AnalysisResult",
