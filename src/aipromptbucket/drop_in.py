@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 import time
 from typing import Any
 
@@ -17,6 +18,59 @@ _client: Client | None = None
 _client_config: tuple[str, str] = ("", "")  # (api_key, base_url) for singleton
 _defaults: dict[str, Any] = {}
 _cache: dict[str, tuple[str, float]] = {}  # key → (text, expiry_timestamp)
+_cache_loaded = False
+
+
+def _cache_file_path() -> Path:
+    custom_path = os.environ.get("AIPROMPTBUCKET_CACHE_PATH")
+    if custom_path:
+        return Path(custom_path).expanduser()
+    return Path.home() / ".cache" / "aipromptbucket" / "prompts.json"
+
+
+def _load_cache_from_disk() -> None:
+    global _cache_loaded
+    if _cache_loaded:
+        return
+
+    cache_path = _cache_file_path()
+    if not cache_path.exists():
+        _cache_loaded = True
+        return
+
+    try:
+        import json
+
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                if not isinstance(value, dict):
+                    continue
+                text = value.get("text")
+                expiry = value.get("expiry")
+                if isinstance(text, str) and isinstance(expiry, (int, float)):
+                    _cache[key] = (text, float(expiry))
+    except Exception as exc:
+        logger.warning("aipromptbucket: failed to load disk cache: %s", exc)
+
+    _cache_loaded = True
+
+
+def _save_cache_to_disk() -> None:
+    cache_path = _cache_file_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        key: {"text": text, "expiry": expiry}
+        for key, (text, expiry) in _cache.items()
+    }
+
+    try:
+        import json
+
+        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("aipromptbucket: failed to save disk cache: %s", exc)
 
 
 def configure(
@@ -24,6 +78,7 @@ def configure(
     api_key: str | None = None,
     base_url: str | None = None,
     default_label: str | None = None,
+    default_fallback_label: str | None = None,
     default_ttl: int | None = None,
 ) -> None:
     """Set defaults for all subsequent get_prompt() calls.
@@ -38,6 +93,8 @@ def configure(
         _defaults["base_url"] = base_url
     if default_label is not None:
         _defaults["default_label"] = default_label
+    if default_fallback_label is not None:
+        _defaults["default_fallback_label"] = default_fallback_label
     if default_ttl is not None:
         _defaults["default_ttl"] = default_ttl
 
@@ -89,6 +146,7 @@ def get_prompt(
     *,
     variables: dict[str, str] | None = None,
     label: str | None = None,
+    fallback_label: str | None = None,
     fallback: str | None = None,
     ttl: int | None = None,
     api_key: str | None = None,
@@ -105,13 +163,14 @@ def get_prompt(
             the render endpoint; otherwise returns raw template text.
         label: Label to fetch (e.g. "production", "staging"). Defaults to
             AIPROMPTBUCKET_DEFAULT_LABEL env var, then "production".
-        fallback: Text to return if the fetch fails for any reason.
+        fallback_label: Backup label to try if the primary label fetch fails.
+        fallback: Text to return if the fetch fails and no cached prompt exists.
         ttl: Cache duration in seconds. 0 or None disables caching.
         api_key: Override the API key for this call only.
         base_url: Override the base URL for this call only.
 
     Returns:
-        The rendered prompt text, the fallback string, or None.
+        The rendered prompt text, stale cached prompt, fallback string, or None.
     """
     resolved_label = (
         label
@@ -120,50 +179,50 @@ def get_prompt(
         or "production"
     )
     resolved_ttl = ttl if ttl is not None else _defaults.get("default_ttl")
+    resolved_fallback_label = fallback_label or _defaults.get("default_fallback_label")
+    _load_cache_from_disk()
 
     # Check cache
+    key = _cache_key(slug, resolved_label, variables)
+    stale_text: str | None = None
     if resolved_ttl:
-        key = _cache_key(slug, resolved_label, variables)
         entry = _cache.get(key)
         if entry is not None:
             text, expiry = entry
-            if time.monotonic() < expiry:
+            if time.time() < expiry:
                 return text
-            del _cache[key]
+            stale_text = text
 
     try:
         client = _get_client(api_key, base_url)
 
-        if variables:
-            resp = client.render(slug, label=resolved_label, variables=variables)
-            if resp.ok and resp.data:
-                text = resp.data.rendered_text
-            else:
-                logger.warning(
-                    "aipromptbucket: render failed for '%s': %s",
-                    slug,
-                    resp.error,
-                )
-                return fallback
+        resp = client.render(slug, label=resolved_label, variables=variables)
+        if resp.ok and resp.data:
+            text = resp.data.rendered_text
         else:
-            resp = client.render(slug, label=resolved_label)
+            if resolved_fallback_label and resolved_fallback_label != resolved_label:
+                logger.warning(
+                    "aipromptbucket: fetch failed for '%s' on label '%s': %s; trying fallback label '%s'",
+                    slug,
+                    resolved_label,
+                    resp.error,
+                    resolved_fallback_label,
+                )
+                resp = client.render(slug, label=resolved_fallback_label, variables=variables)
+
             if resp.ok and resp.data:
                 text = resp.data.rendered_text
             else:
-                logger.warning(
-                    "aipromptbucket: fetch failed for '%s': %s",
-                    slug,
-                    resp.error,
-                )
-                return fallback
+                logger.warning("aipromptbucket: fetch failed for '%s': %s", slug, resp.error)
+                return stale_text or fallback
 
         # Store in cache
         if resolved_ttl:
-            key = _cache_key(slug, resolved_label, variables)
-            _cache[key] = (text, time.monotonic() + resolved_ttl)
+            _cache[key] = (text, time.time() + resolved_ttl)
+            _save_cache_to_disk()
 
         return text
 
     except Exception as exc:
         logger.warning("aipromptbucket: unexpected error for '%s': %s", slug, exc)
-        return fallback
+        return stale_text or fallback

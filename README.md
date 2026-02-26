@@ -39,10 +39,13 @@ text = get_prompt("my-prompt", variables={"name": "Alice"})
 # With a specific label
 text = get_prompt("my-prompt", label="staging")
 
+# With label failover (try production, then stable)
+text = get_prompt("my-prompt", label="production", fallback_label="stable")
+
 # With a fallback if the service is unreachable
 text = get_prompt("my-prompt", fallback="You are a helpful assistant.")
 
-# With TTL caching (seconds)
+# With TTL caching (seconds) + stale cache fallback
 text = get_prompt("my-prompt", ttl=300)
 ```
 
@@ -55,8 +58,25 @@ aipromptbucket.configure(
     api_key="sk-api01-...",
     base_url="https://aipromptbucket.com",
     default_label="production",
+    default_fallback_label="stable",
     default_ttl=300,
 )
+```
+
+
+### Reliability Pattern (recommended for production)
+
+The SDK can keep prompt delivery available even during transient API outages:
+
+- **Memory + disk cache** (via `ttl`) so warm prompts survive process restarts.
+- **Stale-on-error fallback**: if refresh fails, the last-known-good cached prompt is returned.
+- **Label failover**: fetch from `label`, then automatically retry with `fallback_label`.
+- **Static fallback text**: optional final safety net if no cached prompt exists.
+
+You can also set a custom persistent cache location with:
+
+```bash
+export AIPROMPTBUCKET_CACHE_PATH="/var/cache/aipromptbucket/prompts.json"
 ```
 
 ## Using the Full Client
