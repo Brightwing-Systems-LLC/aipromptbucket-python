@@ -67,8 +67,24 @@ def _save_cache_to_disk() -> None:
 
     try:
         import json
+        import tempfile
 
-        cache_path.write_text(json.dumps(payload), encoding="utf-8")
+        # Atomic write: write to a temp file then rename, so a crash
+        # mid-write never leaves a corrupted cache file.
+        fd, tmp_path = tempfile.mkstemp(
+            dir=cache_path.parent, suffix=".tmp", prefix=".prompts-"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            os.replace(tmp_path, cache_path)
+        except BaseException:
+            # Clean up the temp file on any failure.
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception as exc:
         logger.warning("aipromptbucket: failed to save disk cache: %s", exc)
 

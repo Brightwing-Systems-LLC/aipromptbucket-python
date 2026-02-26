@@ -8,7 +8,7 @@ import time
 
 logger = logging.getLogger("aipromptbucket")
 
-_MAX_RETRIES = 2
+_MAX_RETRIES = 3
 _INITIAL_BACKOFF = 0.5  # seconds; doubles each retry
 _USER_AGENT = "AIPromptBucket-Python/0.1.0"
 _LOG_PREFIX = "AIPROMPTBUCKET_UNSENT_REQUEST"
@@ -87,7 +87,7 @@ def request(
 
             return resp.status_code, data
 
-        except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout) as e:
+        except httpx.TransportError as e:
             last_err = e
             if attempt < _MAX_RETRIES:
                 logger.info(
@@ -99,5 +99,6 @@ def request(
                 time.sleep(_INITIAL_BACKOFF * (2**attempt))
                 continue
 
-    _log_unsent(method, url, f"unreachable:{last_err}", json_body)
-    return 0, None
+    reason = f"unreachable:{type(last_err).__name__}:{last_err}" if last_err else "unreachable:unknown"
+    _log_unsent(method, url, reason, json_body)
+    return 0, {"detail": f"Server unreachable after {_MAX_RETRIES} retries ({type(last_err).__name__})" if last_err else "Server unreachable"}

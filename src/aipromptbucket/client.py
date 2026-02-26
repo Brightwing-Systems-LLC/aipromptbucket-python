@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 import os
 from typing import Any
 
@@ -22,6 +24,19 @@ from .types import (
     Snapshot,
     TeamLabel,
 )
+
+
+logger = logging.getLogger("aipromptbucket")
+
+
+def _build(cls, data: dict) -> Any:
+    """Construct a dataclass, silently dropping unknown fields.
+
+    Prevents TypeError when the server adds new response fields that this
+    SDK version doesn't know about yet.
+    """
+    known = {f.name for f in dataclasses.fields(cls)}
+    return cls(**{k: v for k, v in data.items() if k in known})
 
 
 class Client:
@@ -86,15 +101,15 @@ class Client:
         status, data = self._request("GET", "/prompts/", params=params or None)
         if status == 200 and isinstance(data, list):
             return APIResponse(ok=True, status_code=status, data=[
-                PromptSummary(**item) for item in data
+                _build(PromptSummary, item) for item in data
             ])
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def get_prompt(self, slug: str) -> APIResponse[Prompt]:
         status, data = self._request("GET", f"/prompts/{slug}")
         if status == 200 and data:
-            data["labels"] = [LabelInfo(**lb) for lb in data.get("labels", [])]
-            return APIResponse(ok=True, status_code=status, data=Prompt(**data))
+            data["labels"] = [_build(LabelInfo, lb) for lb in data.get("labels", [])]
+            return APIResponse(ok=True, status_code=status, data=_build(Prompt, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def create_prompt(
@@ -126,8 +141,8 @@ class Client:
 
         status, data = self._request("POST", "/prompts/", json_body=body)
         if status == 201 and data:
-            data["labels"] = [LabelInfo(**lb) for lb in data.get("labels", [])]
-            return APIResponse(ok=True, status_code=status, data=Prompt(**data))
+            data["labels"] = [_build(LabelInfo, lb) for lb in data.get("labels", [])]
+            return APIResponse(ok=True, status_code=status, data=_build(Prompt, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def update_prompt(
@@ -151,8 +166,8 @@ class Client:
 
         status, data = self._request("PUT", f"/prompts/{slug}", json_body=body)
         if status == 200 and data:
-            data["labels"] = [LabelInfo(**lb) for lb in data.get("labels", [])]
-            return APIResponse(ok=True, status_code=status, data=Prompt(**data))
+            data["labels"] = [_build(LabelInfo, lb) for lb in data.get("labels", [])]
+            return APIResponse(ok=True, status_code=status, data=_build(Prompt, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def delete_prompt(self, slug: str) -> APIResponse[None]:
@@ -167,14 +182,14 @@ class Client:
         status, data = self._request("GET", f"/prompts/{slug}/versions")
         if status == 200 and isinstance(data, list):
             return APIResponse(ok=True, status_code=status, data=[
-                PromptVersion(**v) for v in data
+                _build(PromptVersion, v) for v in data
             ])
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def get_version(self, slug: str, version_number: int) -> APIResponse[PromptVersion]:
         status, data = self._request("GET", f"/prompts/{slug}/versions/{version_number}")
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=PromptVersion(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(PromptVersion, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def create_version(
@@ -187,7 +202,7 @@ class Client:
         body = {"template_text": template_text, "change_note": change_note}
         status, data = self._request("POST", f"/prompts/{slug}/versions", json_body=body)
         if status == 201 and data:
-            return APIResponse(ok=True, status_code=status, data=PromptVersion(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(PromptVersion, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── Rendering ──
@@ -202,7 +217,7 @@ class Client:
         body: dict[str, Any] = {"label": label, "variables": variables or {}}
         status, data = self._request("POST", f"/prompts/{slug}/render", json_body=body)
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=RenderResult(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(RenderResult, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── Promote / Rollback ──
@@ -213,16 +228,16 @@ class Client:
         body = {"version": version, "label": label}
         status, data = self._request("POST", f"/prompts/{slug}/promote", json_body=body)
         if status == 200 and data:
-            data["labels"] = [LabelInfo(**lb) for lb in data.get("labels", [])]
-            return APIResponse(ok=True, status_code=status, data=Prompt(**data))
+            data["labels"] = [_build(LabelInfo, lb) for lb in data.get("labels", [])]
+            return APIResponse(ok=True, status_code=status, data=_build(Prompt, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def rollback(self, slug: str, *, label: str) -> APIResponse[Prompt]:
         body = {"label": label}
         status, data = self._request("POST", f"/prompts/{slug}/rollback", json_body=body)
         if status == 200 and data:
-            data["labels"] = [LabelInfo(**lb) for lb in data.get("labels", [])]
-            return APIResponse(ok=True, status_code=status, data=Prompt(**data))
+            data["labels"] = [_build(LabelInfo, lb) for lb in data.get("labels", [])]
+            return APIResponse(ok=True, status_code=status, data=_build(Prompt, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── Labels ──
@@ -231,7 +246,7 @@ class Client:
         status, data = self._request("GET", "/labels/")
         if status == 200 and isinstance(data, list):
             return APIResponse(ok=True, status_code=status, data=[
-                TeamLabel(**lb) for lb in data
+                _build(TeamLabel, lb) for lb in data
             ])
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
@@ -245,7 +260,7 @@ class Client:
         body = {"name": name, "is_protected": is_protected, "description": description}
         status, data = self._request("POST", "/labels/", json_body=body)
         if status == 201 and data:
-            return APIResponse(ok=True, status_code=status, data=TeamLabel(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(TeamLabel, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def delete_label(self, name: str) -> APIResponse[None]:
@@ -258,7 +273,7 @@ class Client:
         status, data = self._request("GET", f"/labels/prompts/{slug}")
         if status == 200 and isinstance(data, list):
             return APIResponse(ok=True, status_code=status, data=[
-                PromptLabel(**pl) for pl in data
+                _build(PromptLabel, pl) for pl in data
             ])
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
@@ -268,13 +283,13 @@ class Client:
         body = {"label": label, "version": version}
         status, data = self._request("POST", f"/labels/prompts/{slug}", json_body=body)
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=PromptLabel(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(PromptLabel, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def label_impact(self, slug: str) -> APIResponse[ImpactResult]:
         status, data = self._request("GET", f"/labels/prompts/{slug}/impact")
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=ImpactResult(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(ImpactResult, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── Snapshots ──
@@ -283,7 +298,7 @@ class Client:
         status, data = self._request("GET", "/snapshots/")
         if status == 200 and isinstance(data, list):
             return APIResponse(ok=True, status_code=status, data=[
-                Snapshot(**s) for s in data
+                _build(Snapshot, s) for s in data
             ])
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
@@ -293,13 +308,13 @@ class Client:
         body = {"name": name, "description": description}
         status, data = self._request("POST", "/snapshots/", json_body=body)
         if status == 201 and data:
-            return APIResponse(ok=True, status_code=status, data=Snapshot(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(Snapshot, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def restore_snapshot(self, snapshot_id: str) -> APIResponse[Snapshot]:
         status, data = self._request("POST", f"/snapshots/{snapshot_id}/restore")
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=Snapshot(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(Snapshot, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── Health Score ──
@@ -307,13 +322,13 @@ class Client:
     def get_health(self, slug: str) -> APIResponse[HealthScore]:
         status, data = self._request("GET", f"/prompts/{slug}/health")
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=HealthScore(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(HealthScore, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def refresh_health(self, slug: str) -> APIResponse[HealthScore]:
         status, data = self._request("POST", f"/prompts/{slug}/health/refresh")
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=HealthScore(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(HealthScore, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── Analysis ──
@@ -323,16 +338,16 @@ class Client:
         if status == 200 and isinstance(data, list):
             results = []
             for item in data:
-                item["findings"] = [AnalysisFinding(**f) for f in item.get("findings", [])]
-                results.append(AnalysisResult(**item))
+                item["findings"] = [_build(AnalysisFinding, f) for f in item.get("findings", [])]
+                results.append(_build(AnalysisResult, item))
             return APIResponse(ok=True, status_code=status, data=results)
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     def run_analysis(self) -> APIResponse[AnalysisResult]:
         status, data = self._request("POST", "/analysis/run")
         if status == 200 and data:
-            data["findings"] = [AnalysisFinding(**f) for f in data.get("findings", [])]
-            return APIResponse(ok=True, status_code=status, data=AnalysisResult(**data))
+            data["findings"] = [_build(AnalysisFinding, f) for f in data.get("findings", [])]
+            return APIResponse(ok=True, status_code=status, data=_build(AnalysisResult, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
 
     # ── System ──
@@ -340,5 +355,5 @@ class Client:
     def health_check(self) -> APIResponse[HealthCheck]:
         status, data = self._request("GET", "/health")
         if status == 200 and data:
-            return APIResponse(ok=True, status_code=status, data=HealthCheck(**data))
+            return APIResponse(ok=True, status_code=status, data=_build(HealthCheck, data))
         return APIResponse(ok=False, status_code=status, error=self._error(status, data))
